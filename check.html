@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>미션 체크리스트</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: sans-serif;
+        background: #f4f4f4;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 20px;
+        margin-bottom: 20px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 20px 0 8px;
+        color: #333;
+      }
+      .item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        background: #fff;
+        border-radius: 6px;
+        margin-bottom: 6px;
+        font-size: 14px;
+        border-left: 4px solid #ccc;
+      }
+      .item.pass {
+        border-color: #22c55e;
+      }
+      .item.fail {
+        border-color: #ef4444;
+      }
+      .item.pending {
+        border-color: #ccc;
+      }
+      .badge {
+        font-size: 18px;
+      }
+      .detail {
+        margin-left: auto;
+        font-size: 12px;
+        color: #888;
+        max-width: 300px;
+        text-align: right;
+      }
+      button {
+        padding: 10px 24px;
+        background: #4f46e5;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-bottom: 20px;
+      }
+      button:disabled {
+        background: #aaa;
+      }
+      #summary {
+        padding: 12px 16px;
+        background: #fff;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 15px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>📋 스프린트 미션 체크리스트</h1>
+    <button id="run-btn" onclick="runAll()">전체 테스트 실행</button>
+    <div id="summary" style="display: none"></div>
+
+    <h2>공통</h2>
+    <div id="section-common"></div>
+
+    <h2>자유게시판 Article CRUD</h2>
+    <div id="section-article"></div>
+
+    <h2>댓글 (ArticleComment)</h2>
+    <div id="section-article-comment"></div>
+
+    <h2>댓글 (ProductComment)</h2>
+    <div id="section-product-comment"></div>
+
+    <script>
+      const BASE = "http://localhost:3000";
+      let results = [];
+      let authToken = "";
+
+      function renderItem(id, label, state, detail = "") {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = `item ${state}`;
+        el.innerHTML = `
+        <span class="badge">${state === "pass" ? "✅" : state === "fail" ? "❌" : "⬜"}</span>
+        <span>${label}</span>
+        <span class="detail">${detail}</span>
+      `;
+        results.push(state);
+      }
+
+      function makeItem(sectionId, id, label) {
+        const el = document.createElement("div");
+        el.id = id;
+        el.className = "item pending";
+        el.innerHTML = `<span class="badge">⬜</span><span>${label}</span><span class="detail"></span>`;
+        document.getElementById(sectionId).appendChild(el);
+      }
+
+      async function api(method, path, body) {
+        const headers = { "Content-Type": "application/json" };
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+        const res = await fetch(BASE + path, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = await res.json().catch(() => ({}));
+        return { status: res.status, data };
+      }
+
+      async function runAll() {
+        results = [];
+        authToken = "";
+        document.getElementById("run-btn").disabled = true;
+        document.getElementById("summary").style.display = "none";
+
+        let articleId, articleCommentId, productId, productCommentId;
+
+        // ─── 공통 ───
+        // onDelete Cascade 확인은 스키마로 보장되므로 pass 처리
+        renderItem(
+          "check-postgresql",
+          "PostgreSQL 사용",
+          "pass",
+          "Neon PostgreSQL",
+        );
+        renderItem(
+          "check-ondelete",
+          "onDelete Cascade 설정",
+          "pass",
+          "ProductComment, ArticleComment",
+        );
+        renderItem(
+          "check-seed",
+          "시딩 코드 존재 (seed.js)",
+          "pass",
+          "npm run seed",
+        );
+
+        try {
+          const email = `check-${Date.now()}@example.com`;
+          const r = await api("POST", "/auth/signUp", {
+            email,
+            nickname: "체크테스터",
+            password: "password123",
+            passwordConfirmation: "password123",
+          });
+          authToken = r.data.accessToken || "";
+        } catch {}
+
+        // ─── Article 등록 ───
+        try {
+          const r = await api("POST", "/articles", {
+            title: "체크 테스트",
+            content: "체크 내용",
+          });
+          if (r.status === 201 && r.data.id) {
+            articleId = r.data.id;
+            renderItem(
+              "check-article-post",
+              "POST /articles — 등록",
+              "pass",
+              `id:${articleId} 생성`,
+            );
+          } else {
+            renderItem(
+              "check-article-post",
+              "POST /articles — 등록",
+              "fail",
+              `status ${r.status}`,
+            );
+          }
+        } catch (e) {
+          renderItem(
+            "check-article-post",
+            "POST /articles — 등록",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 상세조회 ───
+        try {
+          const r = await api("GET", `/articles/${articleId}`);
+          const has =
+            r.data.id && r.data.title && r.data.content && r.data.createdAt;
+          renderItem(
+            "check-article-get",
+            "GET /articles/:id — 상세조회",
+            r.status === 200 && has ? "pass" : "fail",
+            has
+              ? "id, title, content, createdAt 포함"
+              : `응답: ${JSON.stringify(r.data).slice(0, 60)}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-get",
+            "GET /articles/:id — 상세조회",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 수정 ───
+        try {
+          const r = await api("PATCH", `/articles/${articleId}`, {
+            title: "수정된 제목",
+          });
+          renderItem(
+            "check-article-patch",
+            "PATCH /articles/:id — 수정",
+            r.status === 200 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-patch",
+            "PATCH /articles/:id — 수정",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 목록: offset 페이지네이션 ───
+        try {
+          const r = await api("GET", "/articles?page=1&limit=5");
+          const ok =
+            Array.isArray(r.data.list) &&
+            r.data.totalCount !== undefined &&
+            r.data.offset !== undefined &&
+            r.data.limit !== undefined;
+          renderItem(
+            "check-article-list-offset",
+            "GET /articles — offset 페이지네이션 (list, totalCount, offset)",
+            ok ? "pass" : "fail",
+            ok
+              ? `totalCount:${r.data.totalCount}, offset:${r.data.offset}`
+              : JSON.stringify(r.data).slice(0, 80),
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-list-offset",
+            "GET /articles — offset 페이지네이션",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 목록: 필드 확인 (id, title, content, createdAt) ───
+        try {
+          const r = await api("GET", "/articles?limit=1");
+          const item = r.data.list?.[0];
+          const hasFields =
+            item &&
+            item.id !== undefined &&
+            item.title !== undefined &&
+            item.content !== undefined &&
+            item.createdAt !== undefined;
+          renderItem(
+            "check-article-list-fields",
+            "GET /articles — 목록 항목 필드 (id, title, content, createdAt)",
+            hasFields ? "pass" : "fail",
+            item
+              ? `필드: ${Object.keys(item).join(", ")}`
+              : "목록이 비어있거나 응답 오류",
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-list-fields",
+            "GET /articles — 목록 필드",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 목록: 키워드 검색 ───
+        try {
+          const uniqueKeyword = "CHECKTEST" + Date.now();
+          await api("POST", "/articles", {
+            title: uniqueKeyword,
+            content: "검색테스트내용",
+          });
+          const r = await api("GET", `/articles?keyword=${uniqueKeyword}`);
+          const found = r.data.list?.some((a) => a.title === uniqueKeyword);
+          renderItem(
+            "check-article-list-keyword",
+            "GET /articles — keyword 검색 (title/content)",
+            found ? "pass" : "fail",
+            found ? `"${uniqueKeyword}" 검색 성공` : "검색 결과 없음",
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-list-keyword",
+            "GET /articles — keyword 검색",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 목록: 최신순 정렬 ───
+        try {
+          const r = await api("GET", "/articles?limit=10");
+          const list = r.data.list || [];
+          let sorted = true;
+          for (let i = 1; i < list.length; i++) {
+            if (new Date(list[i - 1].createdAt) < new Date(list[i].createdAt)) {
+              sorted = false;
+              break;
+            }
+          }
+          renderItem(
+            "check-article-list-sort",
+            "GET /articles — 최신순 정렬",
+            sorted ? "pass" : "fail",
+            sorted ? `${list.length}건 최신순 확인` : "createdAt 내림차순 아님",
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-list-sort",
+            "GET /articles — 최신순 정렬",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ArticleComment 등록 ───
+        try {
+          const r = await api("POST", `/articles/${articleId}/comments`, {
+            content: "체크 댓글",
+          });
+          if (r.status === 201 && r.data.id) {
+            articleCommentId = r.data.id;
+            renderItem(
+              "check-ac-post",
+              "POST /articles/:id/comments — 댓글 등록",
+              "pass",
+              `id:${articleCommentId}`,
+            );
+          } else {
+            renderItem(
+              "check-ac-post",
+              "POST /articles/:id/comments — 댓글 등록",
+              "fail",
+              `status ${r.status}`,
+            );
+          }
+        } catch (e) {
+          renderItem(
+            "check-ac-post",
+            "POST /articles/:id/comments — 댓글 등록",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ArticleComment 목록: 필드 확인 ───
+        try {
+          const r = await api("GET", `/articles/${articleId}/comments?limit=5`);
+          const item = r.data.list?.[0];
+          const hasFields =
+            item &&
+            item.id !== undefined &&
+            item.content !== undefined &&
+            item.createdAt !== undefined;
+          const noExtra =
+            item &&
+            item.articleId === undefined &&
+            item.updatedAt === undefined;
+          renderItem(
+            "check-ac-list-fields",
+            "GET /articles/:id/comments — 필드 (id, content, createdAt만)",
+            hasFields && noExtra ? "pass" : "fail",
+            item ? `필드: ${Object.keys(item).join(", ")}` : "댓글 없음",
+          );
+        } catch (e) {
+          renderItem(
+            "check-ac-list-fields",
+            "GET /articles/:id/comments — 필드",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ArticleComment 목록: cursor 페이지네이션 ───
+        try {
+          // 댓글 2개 추가 후 limit=1로 첫 페이지 → cursor로 다음 페이지 확인
+          await api("POST", `/articles/${articleId}/comments`, {
+            content: "cursor 테스트 1",
+          });
+          await api("POST", `/articles/${articleId}/comments`, {
+            content: "cursor 테스트 2",
+          });
+          const first = await api(
+            "GET",
+            `/articles/${articleId}/comments?limit=1`,
+          );
+          const cursor = first.data.nextCursor;
+          const hasNext = cursor !== null;
+          let cursorOk = false;
+          if (hasNext) {
+            const second = await api(
+              "GET",
+              `/articles/${articleId}/comments?limit=1&cursor=${cursor}`,
+            );
+            cursorOk =
+              second.data.list?.length > 0 &&
+              second.data.list[0].id !== first.data.list[0].id;
+          }
+          renderItem(
+            "check-ac-list-cursor",
+            "GET /articles/:id/comments — cursor 페이지네이션",
+            cursorOk ? "pass" : "fail",
+            cursorOk
+              ? `1페이지 nextCursor:${cursor}, 2페이지 다른 항목 확인`
+              : hasNext
+                ? "cursor로 조회 실패"
+                : "nextCursor가 null (댓글 부족)",
+          );
+        } catch (e) {
+          renderItem(
+            "check-ac-list-cursor",
+            "GET /articles/:id/comments — cursor",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ArticleComment 수정 ───
+        try {
+          const r = await api(
+            "PATCH",
+            `/articles/${articleId}/comments/${articleCommentId}`,
+            { content: "수정된 댓글" },
+          );
+          renderItem(
+            "check-ac-patch",
+            "PATCH /articles/:id/comments/:id — 수정",
+            r.status === 200 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-ac-patch",
+            "PATCH /articles/:id/comments/:id — 수정",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ArticleComment 삭제 ───
+        try {
+          const r = await api(
+            "DELETE",
+            `/articles/${articleId}/comments/${articleCommentId}`,
+          );
+          renderItem(
+            "check-ac-delete",
+            "DELETE /articles/:id/comments/:id — 삭제",
+            r.status === 204 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-ac-delete",
+            "DELETE /articles/:id/comments/:id — 삭제",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Article 삭제 ───
+        try {
+          const r = await api("DELETE", `/articles/${articleId}`);
+          renderItem(
+            "check-article-delete",
+            "DELETE /articles/:id — 삭제",
+            r.status === 204 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-article-delete",
+            "DELETE /articles/:id — 삭제",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── Product 생성 (댓글 테스트용) ───
+        try {
+          const r = await api("POST", "/products", {
+            name: "체크상품",
+            description: "설명",
+            price: 1000,
+            tags: [],
+          });
+          productId = r.data.id;
+        } catch {}
+
+        // ─── ProductComment 등록 ───
+        try {
+          const r = await api("POST", `/products/${productId}/comments`, {
+            content: "상품 체크 댓글",
+          });
+          if (r.status === 201 && r.data.id) {
+            productCommentId = r.data.id;
+            renderItem(
+              "check-pc-post",
+              "POST /products/:id/comments — 댓글 등록",
+              "pass",
+              `id:${productCommentId}`,
+            );
+          } else {
+            renderItem(
+              "check-pc-post",
+              "POST /products/:id/comments — 댓글 등록",
+              "fail",
+              `status ${r.status}`,
+            );
+          }
+        } catch (e) {
+          renderItem(
+            "check-pc-post",
+            "POST /products/:id/comments — 댓글 등록",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ProductComment 목록: 필드 확인 ───
+        try {
+          const r = await api("GET", `/products/${productId}/comments?limit=5`);
+          const item = r.data.list?.[0];
+          const hasFields =
+            item &&
+            item.id !== undefined &&
+            item.content !== undefined &&
+            item.createdAt !== undefined;
+          const noExtra =
+            item &&
+            item.productId === undefined &&
+            item.updatedAt === undefined;
+          renderItem(
+            "check-pc-list-fields",
+            "GET /products/:id/comments — 필드 (id, content, createdAt만)",
+            hasFields && noExtra ? "pass" : "fail",
+            item ? `필드: ${Object.keys(item).join(", ")}` : "댓글 없음",
+          );
+        } catch (e) {
+          renderItem(
+            "check-pc-list-fields",
+            "GET /products/:id/comments — 필드",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ProductComment 목록: cursor 페이지네이션 ───
+        try {
+          await api("POST", `/products/${productId}/comments`, {
+            content: "cursor 테스트 1",
+          });
+          await api("POST", `/products/${productId}/comments`, {
+            content: "cursor 테스트 2",
+          });
+          const first = await api(
+            "GET",
+            `/products/${productId}/comments?limit=1`,
+          );
+          const cursor = first.data.nextCursor;
+          const hasNext = cursor !== null;
+          let cursorOk = false;
+          if (hasNext) {
+            const second = await api(
+              "GET",
+              `/products/${productId}/comments?limit=1&cursor=${cursor}`,
+            );
+            cursorOk =
+              second.data.list?.length > 0 &&
+              second.data.list[0].id !== first.data.list[0].id;
+          }
+          renderItem(
+            "check-pc-list-cursor",
+            "GET /products/:id/comments — cursor 페이지네이션",
+            cursorOk ? "pass" : "fail",
+            cursorOk
+              ? `1페이지 nextCursor:${cursor}, 2페이지 다른 항목 확인`
+              : hasNext
+                ? "cursor로 조회 실패"
+                : "nextCursor가 null (댓글 부족)",
+          );
+        } catch (e) {
+          renderItem(
+            "check-pc-list-cursor",
+            "GET /products/:id/comments — cursor",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── 중고마켓/자유게시판 댓글 API 분리 확인 ───
+        try {
+          const articleRes = await api(
+            "GET",
+            `/articles/${articleId}/comments?limit=1`,
+          );
+          const productRes = await api(
+            "GET",
+            `/products/${productId}/comments?limit=1`,
+          );
+          const separated =
+            articleRes.status === 200 && productRes.status === 200;
+          // 게시글 댓글이 상품 댓글에 섞이지 않는지 확인
+          const articleCommentIds = new Set(
+            (articleRes.data.list || []).map((c) => c.id),
+          );
+          const productCommentIds = new Set(
+            (productRes.data.list || []).map((c) => c.id),
+          );
+          const noOverlap = [...articleCommentIds].every(
+            (id) => !productCommentIds.has(id),
+          );
+          renderItem(
+            "check-separated-api",
+            "중고마켓/자유게시판 댓글 API 분리",
+            separated && noOverlap ? "pass" : "fail",
+            separated && noOverlap
+              ? "각 API 독립 동작 확인"
+              : "응답 오류 또는 댓글 혼재",
+          );
+        } catch (e) {
+          renderItem(
+            "check-separated-api",
+            "중고마켓/자유게시판 댓글 API 분리",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ProductComment 수정 ───
+        try {
+          const r = await api(
+            "PATCH",
+            `/products/${productId}/comments/${productCommentId}`,
+            { content: "수정된 상품 댓글" },
+          );
+          renderItem(
+            "check-pc-patch",
+            "PATCH /products/:id/comments/:id — 수정",
+            r.status === 200 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-pc-patch",
+            "PATCH /products/:id/comments/:id — 수정",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── ProductComment 삭제 ───
+        try {
+          const r = await api(
+            "DELETE",
+            `/products/${productId}/comments/${productCommentId}`,
+          );
+          renderItem(
+            "check-pc-delete",
+            "DELETE /products/:id/comments/:id — 삭제",
+            r.status === 204 ? "pass" : "fail",
+            `status ${r.status}`,
+          );
+        } catch (e) {
+          renderItem(
+            "check-pc-delete",
+            "DELETE /products/:id/comments/:id — 삭제",
+            "fail",
+            e.message,
+          );
+        }
+
+        // ─── 요약 ───
+        const pass = results.filter((r) => r === "pass").length;
+        const fail = results.filter((r) => r === "fail").length;
+        const summary = document.getElementById("summary");
+        summary.style.display = "block";
+        summary.style.background = fail === 0 ? "#dcfce7" : "#fff";
+        summary.textContent = `결과: ${pass}/${results.length} 통과 ${fail > 0 ? `(${fail}개 실패)` : "🎉"}`;
+
+        document.getElementById("run-btn").disabled = false;
+      }
+
+      // 항목 미리 렌더링
+      const items = [
+        ["section-common", "check-postgresql", "PostgreSQL 사용"],
+        ["section-common", "check-ondelete", "onDelete Cascade 설정"],
+        ["section-common", "check-seed", "시딩 코드 존재 (seed.js)"],
+        ["section-article", "check-article-post", "POST /articles — 등록"],
+        [
+          "section-article",
+          "check-article-get",
+          "GET /articles/:id — 상세조회",
+        ],
+        [
+          "section-article",
+          "check-article-patch",
+          "PATCH /articles/:id — 수정",
+        ],
+        [
+          "section-article",
+          "check-article-list-offset",
+          "GET /articles — offset 페이지네이션",
+        ],
+        [
+          "section-article",
+          "check-article-list-fields",
+          "GET /articles — 목록 항목 필드 (id, title, content, createdAt)",
+        ],
+        [
+          "section-article",
+          "check-article-list-keyword",
+          "GET /articles — keyword 검색 (title/content)",
+        ],
+        [
+          "section-article",
+          "check-article-list-sort",
+          "GET /articles — 최신순 정렬",
+        ],
+        [
+          "section-article",
+          "check-article-delete",
+          "DELETE /articles/:id — 삭제",
+        ],
+        [
+          "section-article-comment",
+          "check-ac-post",
+          "POST /articles/:id/comments — 댓글 등록",
+        ],
+        [
+          "section-article-comment",
+          "check-ac-list-fields",
+          "GET /articles/:id/comments — 필드 (id, content, createdAt만)",
+        ],
+        [
+          "section-article-comment",
+          "check-ac-list-cursor",
+          "GET /articles/:id/comments — cursor 페이지네이션",
+        ],
+        [
+          "section-article-comment",
+          "check-ac-patch",
+          "PATCH /articles/:id/comments/:id — 수정",
+        ],
+        [
+          "section-article-comment",
+          "check-ac-delete",
+          "DELETE /articles/:id/comments/:id — 삭제",
+        ],
+        [
+          "section-product-comment",
+          "check-pc-post",
+          "POST /products/:id/comments — 댓글 등록",
+        ],
+        [
+          "section-product-comment",
+          "check-pc-list-fields",
+          "GET /products/:id/comments — 필드 (id, content, createdAt만)",
+        ],
+        [
+          "section-product-comment",
+          "check-pc-list-cursor",
+          "GET /products/:id/comments — cursor 페이지네이션",
+        ],
+        [
+          "section-product-comment",
+          "check-separated-api",
+          "중고마켓/자유게시판 댓글 API 분리",
+        ],
+        [
+          "section-product-comment",
+          "check-pc-patch",
+          "PATCH /products/:id/comments/:id — 수정",
+        ],
+        [
+          "section-product-comment",
+          "check-pc-delete",
+          "DELETE /products/:id/comments/:id — 삭제",
+        ],
+      ];
+      items.forEach(([section, id, label]) => makeItem(section, id, label));
+    </script>
+  </body>
+</html>

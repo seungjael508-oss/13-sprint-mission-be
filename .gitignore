@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.local
+.DS_Store
+.claude/
+
+/generated/prisma
+/dist
+/uploads/*
+!/uploads/.gitkeep
+
+docs/library-db/
+.worktrees/
+.omc/
